@@ -22,7 +22,7 @@ full_income_df <- merge(df_ind, income)
 
 
 #only select columns needed
-trends<-select(df_ind,year,serial,month,labforce,wkstat,empstat,ind,indname,before_covid,month,quarter)
+trends<-select(df_ind,year,serial,month,labforce,wkstat,empstat,ind,indname,before_covid,month,quarter,asecflag)
 
 #view new data set
 View(trends)
