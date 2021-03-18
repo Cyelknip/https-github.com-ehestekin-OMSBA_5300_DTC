@@ -10,23 +10,35 @@ library(vtable)
 df <- read_dta("~/Downloads/cps_00004.dta")
 indnames <- read_csv("~/Downloads/indnames.csv")
 income <- read_dta("~/downloads/incomeData.dta.gz")
+
 #join data
 df_ind <- inner_join(df, indnames, by="ind")
+
 #add covid flag, and quarter flag
 df_ind<- df_ind %>% mutate(before_covid = (year < 2020 | (year = 2020 & month < 3)),
                              quarter = ceiling(month / 3)) %>% 
   relocate(c(year, month, quarter, before_covid))
 # add income data
-full_income_df <- merge(df_ind, income)
+full_income_df <- inner_join(df_ind, income, by = "serial")
+
+#Add in dummy COVID field
+df_ind <- full_income_df %>% 
+  #Add month year variable
+  mutate(year_month = as.Date(paste(year, '-', month, '-1', sep=''))) %>% 
+  #Add in dummy COVID field
+  mutate(COVID=year_month >= as.Date('2020-3-1')) %>%
+  #Filter out ASEC data
+  filter(is.na(asecflag) | asecflag == 2)%>%
+  filter(!is.na(asecflag))
 
 
 
 #only select columns needed
-trends<-select(df_ind,year,serial,month,labforce,wkstat,empstat,ind,indname,before_covid,month,quarter,asecflag)
+trends<-select(df_ind,serial,pernum,year_month,quarter,before_covid,COVID,labforce,wkstat,empstat,ind,indname,asecflag)
 
 #view new data set
 View(trends)
-#gather, sepaarate, spread, select, filter, delete N/A, delete duplicates,view
+#gather, sepaarate, spread, select, filter, delete N/A, delete duplicates
 trends %>%
   gather("columns","observations",-serial)%>%
   separate(columns,c("columns","column_number"),sep="_")%>%
@@ -34,24 +46,17 @@ trends %>%
   
   filter(!is.na())%>%
   
-  distinct()%>%
-  View(trends)
+  distinct()
+ 
 
 #view data
-vtable(df_ind)
-sumtable(df_ind)
+vtable(trends)
+sumtable(trends)
 
-#Add in dummy COVID field
-df_ind <- df_ind %>% 
-  #Add month year variable
-  mutate(year_month = as.Date(paste(year, '-', month, '-1', sep=''))) %>% 
-  #Add in dummy COVID field
-  mutate(COVID=year_month >= as.Date('2020-3-1')) %>%
-  #Filter out ASEC data
-  filter(is.na(asecflag) | asecflag == 2)
+
 
 #Create dummy variables for specific industries
-df_ind <- df_ind %>%
+df_ind <- trends%>%
   mutate(retail=indname=="Retail Trade") %>%
   mutate(food.ent=indname=="Arts, Entertainment, and Recreation, and Accommodation and Food Services") %>%
   mutate(edu.health=indname=="Educational Services, and Health Care and Social Assistance") %>%
@@ -132,23 +137,3 @@ ggplot(ind_comparison, aes(y=employee_count, x=factor(year_month), color=indname
 fe_model <- lm(data=ind_comparison, employee_count~indname*COVID)
 export_summs(fe_model)
 
-#How has retail fared relative to other industries?
-
-#Create df including different industries
-ind_comparison <- df_ind %>%
-  filter(retail==1|food.ent==1|edu.health==1|transport==1|agri==1) %>%
-  group_by(indname,retail,food.ent,edu.health,transport,agri,COVID, year_month) %>%
-  summarise(employee_count=n())
-
-#Make Retail the reference industry
-ind_comparison$indname <- relevel(as.factor(ind_comparison$indname), ref=4)
-
-#Plot employee count over time for each industry
-ggplot(ind_comparison, aes(y=employee_count, x=factor(year_month), color=indname)) + geom_point() + 
-  theme(axis.text.x = element_text(angle = 65, hjust = 1)) +
-  labs(y="Employee Count", x="Year Month", title="Employee Count Over Time by Industry") +
-  scale_colour_discrete("Industry")
-
-
-fe_model <- lm(data=ind_comparison, employee_count~indname*COVID)
-export_summs(fe_model)
