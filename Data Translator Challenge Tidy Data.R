@@ -13,7 +13,7 @@ income <- read_dta("~/downloads/incomeData.dta.gz")
 #join data
 df_ind <- inner_join(df, indnames, by="ind")
 #add covid flag, and quarter flag
-df_ind<- full_df %>% mutate(before_covid = (year < 2020 | (year = 2020 & month < 3)),
+df_ind<- df_ind %>% mutate(before_covid = (year < 2020 | (year = 2020 & month < 3)),
                              quarter = ceiling(month / 3)) %>% 
   relocate(c(year, month, quarter, before_covid))
 # add income data
@@ -131,20 +131,6 @@ ggplot(ind_comparison, aes(y=employee_count, x=factor(year_month), color=indname
 
 fe_model <- lm(data=ind_comparison, employee_count~indname*COVID)
 export_summs(fe_model)
-
-
-
-
-
-
-
-
-
-
-#How has retail fared relative to other industries?
-
-
-
 
 #How has retail fared relative to other industries?
 
