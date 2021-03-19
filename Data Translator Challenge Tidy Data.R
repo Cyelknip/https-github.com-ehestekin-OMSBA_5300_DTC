@@ -13,50 +13,53 @@ income <- read_dta("~/downloads/incomeData.dta.gz")
 
 #join data
 df_ind <- inner_join(df, indnames, by="ind")
-
-#add covid flag, and quarter flag
-df_ind<- df_ind %>% mutate(before_covid = (year < 2020 | (year = 2020 & month < 3)),
-                             quarter = ceiling(month / 3)) %>% 
-  relocate(c(year, month, quarter, before_covid))
-# add income data
 full_income_df <- inner_join(df_ind, income, by = "serial")
-
-#Add in dummy COVID field
-df_ind <- full_income_df %>% 
-  #Add month year variable
-  mutate(year_month = as.Date(paste(year, '-', month, '-1', sep=''))) %>% 
-  #Add in dummy COVID field
-  mutate(COVID=year_month >= as.Date('2020-3-1')) %>%
-  #Filter out ASEC data
-  filter(is.na(asecflag) | asecflag == 2)%>%
-  filter(!is.na(asecflag))
-
-
-
 #only select columns needed
-trends<-select(df_ind,serial,pernum,year_month,quarter,before_covid,COVID,labforce,wkstat,empstat,ind,indname,asecflag)
+full_trends<-select(df_ind,serial,pernum,year,month,labforce,wkstat,empstat,ind,indname)
 
-#view new data set
-View(trends)
-#gather, sepaarate, spread, select, filter, delete N/A, delete duplicates
-trends %>%
+#gather, sepaarate, spread, select, filter, delete N/A, delete duplicates and view
+full_trends %>%
   gather("columns","observations",-serial)%>%
   separate(columns,c("columns","column_number"),sep="_")%>%
   spread(columns,observations)%>%
-  
   filter(!is.na())%>%
-  
+  distinct()%>%
+  View(full_trends)
+#only select columns needed to show data from 3/19 compared to 3/20
+march_trends<-select(full_income_df,serial,pernum,year,month,labforce,wkstat,empstat,ind,indname,incwage,asecflag)
+
+#view new data set
+View(march_trends)
+#gather, sepaarate, spread, select, filter, delete N/A, delete duplicates
+march_trends %>%
+  gather("columns","observations",-serial)%>%
+  separate(columns,c("columns","column_number"),sep="_")%>%
+  spread(columns,observations)%>%
+  filter(!is.na(incwage))%>%
   distinct()
  
-
+#rename data and filter out income N/A values
+march_trends <-filter(march_trends,!is.na(incwage))
+View(march_trends)
 #view data
-vtable(trends)
-sumtable(trends)
-
+vtable(full_trends)
+vtable(march_trends)
+sumtable(full_trends)
+sumtable(march_trends)
+#add covid flag, and quarter flag
+df_ind<- march_trends %>% mutate(before_covid = (year < 2020 | (year = 2020 & month < 3)),
+                           quarter = ceiling(month / 3)) %>% 
+  relocate(c(year, month, quarter, before_covid))
+#Add in dummy COVID field
+df_ind <- march_trends %>% 
+  #Add month year variable
+  mutate(year_month = as.Date(paste(year, '-', month, '-1', sep=''))) %>% 
+  #Add in dummy COVID field
+  mutate(COVID=year_month >= as.Date('2020-3-1'))
 
 
 #Create dummy variables for specific industries
-df_ind <- trends%>%
+df_ind <- march_trends%>%
   mutate(retail=indname=="Retail Trade") %>%
   mutate(food.ent=indname=="Arts, Entertainment, and Recreation, and Accommodation and Food Services") %>%
   mutate(edu.health=indname=="Educational Services, and Health Care and Social Assistance") %>%
@@ -101,8 +104,9 @@ wkstat_desc_short <- c('Full-time'
 wkstat <- data.frame(wkstat=wkstat_id, desc=wkstat_desc, desc_short=wkstat_desc_short)
 #Add in work status descriptions
 df_by_month <- inner_join(df_ret, wkstat)
+
 #Create df grouped by year, month, and work status, count of employees
-df_wkstat_by_month <- df_by_month %>% group_by(year_month, desc_short, COVID) %>% summarise(employee_count=n())
+df_wkstat_by_month <- df_by_month %>% group_by(year_month, desc_short,COVID) %>% summarise(employee_count=n())
 #Plot employee count over time
 ggplot(df_wkstat_by_month, aes(y=employee_count, x=factor(year_month), color=desc_short)) + geom_point() + 
   theme(axis.text.x = element_text(angle = 65, hjust = 1)) +
@@ -120,7 +124,7 @@ export_summs(ret_model)
 #How has retail fared relative to other industries?
 
 #Create df including different industries
-ind_comparison <- df_ind %>%
+ind_comparison <- df_ind_by_month %>%
   filter(retail==1|food.ent==1|edu.health==1|transport==1|agri==1) %>%
   group_by(indname,retail,food.ent,edu.health,transport,agri,COVID, year_month) %>%
   summarise(employee_count=n())
@@ -136,4 +140,39 @@ ggplot(ind_comparison, aes(y=employee_count, x=factor(year_month), color=indname
 
 fe_model <- lm(data=ind_comparison, employee_count~indname*COVID)
 export_summs(fe_model)
+
+wkstat <- data.frame(wkstat=wkstat_id, desc=wkstat_desc, desc_short=wkstat_desc_short)
+#Add in work status descriptions
+df_by_month <- inner_join(df_ret, wkstat)
+#Create df grouped by year, month, and work status, count of employees
+df_wkstat_by_month <- df_by_month %>% group_by(year_month, desc_short, COVID) %>% summarise(employee_count=n())
+#Plot employee count over time
+ggplot(df_wkstat_by_month, aes(y=employee_count, x=year_month, color=desc_short)) + geom_point() + 
+  theme(axis.text.x = element_text(angle = 65, hjust = 1)) +
+  scale_x_continuous("year_month", labels = as.character(df_wkstat_by_month$year_month), breaks = df_wkstat_by_month$year_month)
+
+#Create df of full-time employees
+df_ft <- df_wkstat_by_month %>% filter(desc_short == "Full-time")
+#Create df of part-time employees
+df_pt <- df_wkstat_by_month %>% filter(desc_short == "Part-time")
+
+#Create df grouped at industry level
+df_ind_by_month <- df_ind %>% group_by(year_month, wkstat, COVID) %>% summarise(employee_count=n())
+
+#How has COVID affected the health of the retail industry, as measured by employment?
+
+Full_time <- lm(employee_count~COVID, data = df_ft)
+Part_time <- lm(employee_count~COVID, data = df_pt)
+
+#Create summary of both primary models
+#export_summs(Full_time)
+#export_summs(Part_time)
+export_summs(Full_time, Part_time, model.names = c("Full-time Employees", "Part-time Employees"),
+             coefs = c(
+               "Pre March Lockdown 2020" = "(Intercept)",
+               "Post March Lockdown 2020" = "COVIDTRUE" ))
+
+#Create plots for both models
+effect_plot(Full_Time, pred = 'COVID', plot.points = TRUE, x.label = "Post March Lockdown 2020", y.label = "Full-time Employees", main.title = "Full-time Employment Before and After March 2020 Lockdown")
+effect_plot(Part_Time, pred = 'COVID', plot.points = TRUE, x.label = "Post March Lockdown 2020", y.label = "Part-time Employees", main.title = "Part-time Employment Before and After March 2020 Lockdown")
 
